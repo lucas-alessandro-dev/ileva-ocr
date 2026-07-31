@@ -36,6 +36,32 @@ Resposta 500: erro interno
 
 ---
 
+## Setup rápido (dev)
+
+Para rodar localmente sem Docker:
+
+```bash
+# 1. Dependências de sistema (uma vez só)
+sudo apt-get update -y
+sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-por tesseract-ocr-eng \
+    python3 python3-pip python3-venv
+
+# 2. Ambiente Python (uma vez só)
+python3 -m venv venv
+./venv/bin/pip install -r requirements.txt
+
+# 3. Subir o servidor (--reload recarrega ao salvar)
+./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 5500 --reload
+
+# 4. Verificar
+curl http://localhost:5500/health
+# {"status":"ok"}
+```
+
+> O `--reload` é só para desenvolvimento. Em produção, troque por `--workers 2` (ver seção PM2 abaixo).
+
+---
+
 ## Deploy com Docker (recomendado para VPS)
 
 ```bash
@@ -68,10 +94,60 @@ curl http://localhost:5500/health
 
 ---
 
-## Variável de ambiente no sistema consumidor
+## Segurança
+
+### Firewall (isolamento por rede)
+
+O `ileva-ocr` não deve ser exposto à internet. Libere a porta `5500` apenas para os IPs dos serviços autorizados:
+
+```bash
+ufw deny 5500
+ufw allow from <IP_DO_SERVICO> to any port 5500
+```
+
+Para adicionar novos serviços no futuro, basta adicionar mais regras:
+
+```bash
+ufw allow from <IP_NOVO_SERVICO> to any port 5500
+```
+
+### API Key por serviço
+
+Cada serviço consumidor deve ter sua própria chave. Configure no `ileva-ocr`:
+
+```env
+# ileva-ocr — lista de chaves autorizadas separadas por vírgula
+OCR_API_KEYS=chave-servico-a,chave-servico-b
+```
+
+Todas as requisições ao `POST /ocr` devem incluir o header:
+
+```
+X-API-Key: <chave-do-servico>
+```
+
+O endpoint `GET /health` é público (usado por healthchecks).
+
+---
+
+## Variáveis de ambiente no sistema consumidor
 
 ```env
 OCR_SERVICE_URL=http://<ip-da-vps>:5500
+OCR_API_KEY=<chave-deste-servico>
+```
+
+Exemplo de chamada com a chave (Node.js):
+
+```js
+const res = await fetch(`${process.env.OCR_SERVICE_URL}/ocr`, {
+  method: 'POST',
+  body: form,
+  headers: {
+    ...form.getHeaders(),
+    'X-API-Key': process.env.OCR_API_KEY,
+  },
+});
 ```
 
 ---
